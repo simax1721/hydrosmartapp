@@ -1,31 +1,74 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
+import { db, ref, set, onValue } from '../../firebase'; // ✅ path sesuaikan
 
 export default function KontrolScreen() {
   const [controls, setControls] = useState({
-    pompa: { mode: 'manual', status: true },
-    lampu: { mode: 'otomatis', status: false },
+    pompa: { mode: 'manual', status: false },
+    lampu: { mode: 'manual', status: false },
     siram: { mode: 'manual', status: false },
   });
 
-  const toggleStatus = (key) => {
-    if (controls[key].mode === 'manual') {
-      setControls({
-        ...controls,
-        [key]: {
-          ...controls[key],
-          status: !controls[key].status,
-        },
-      });
-    }
-  };
+  // 🔹 Sync dari Firebase -> State
+  useEffect(() => {
+    const alatList = ['pompa', 'lampu', 'siram'];
 
+    alatList.forEach((alat) => {
+      // Mode
+      const modeRef = ref(db, `/hydrosmart/control/${alat}Mode`);
+      onValue(modeRef, (snapshot) => {
+        const value = snapshot.val();
+        if (value !== null) {
+          setControls((prev) => ({
+            ...prev,
+            [alat]: {
+              ...prev[alat],
+              mode: value ? 'otomatis' : 'manual',
+            },
+          }));
+        }
+      });
+
+      // Status
+      const statusRef = ref(db, `/hydrosmart/controlAdvance/${alat}`);
+      onValue(statusRef, (snapshot) => {
+        const value = snapshot.val();
+        if (value !== null) {
+          setControls((prev) => ({
+            ...prev,
+            [alat]: {
+              ...prev[alat],
+              status: value,
+            },
+          }));
+        }
+      });
+    });
+  }, []);
+
+  // 🔹 Update Mode ke Firebase
   const changeMode = (key, mode) => {
     setControls({
       ...controls,
       [key]: { ...controls[key], mode },
     });
+
+    set(ref(db, `/hydrosmart/control/${key}Mode`), mode === 'otomatis');
+  };
+
+  // 🔹 Toggle Status (hanya jika manual)
+  const toggleStatus = (key) => {
+    if (controls[key].mode === 'manual') {
+      const newStatus = !controls[key].status;
+
+      setControls({
+        ...controls,
+        [key]: { ...controls[key], status: newStatus },
+      });
+
+      set(ref(db, `/hydrosmart/controlAdvance/${key}`), newStatus);
+    }
   };
 
   return (
@@ -41,9 +84,13 @@ export default function KontrolScreen() {
           <View key={key} style={styles.card}>
             <Text style={styles.label}>{label}</Text>
             <Text style={styles.status}>
-              Status: {controls[key].mode === 'otomatis' ? 'Auto' : controls[key].status ? 'ON' : 'OFF'}
+              Mode: {controls[key].mode === 'otomatis' ? 'Otomatis' : 'Manual'}
+            </Text>
+            <Text style={styles.status}>
+              Status: {controls[key].status ? 'ON' : 'OFF'}
             </Text>
 
+            {/* Picker untuk mode */}
             <View style={styles.pickerContainer}>
               <Picker
                 selectedValue={controls[key].mode}
@@ -56,6 +103,7 @@ export default function KontrolScreen() {
               </Picker>
             </View>
 
+            {/* Tombol ON/OFF jika manual */}
             {controls[key].mode === 'manual' && (
               <TouchableOpacity
                 style={[
