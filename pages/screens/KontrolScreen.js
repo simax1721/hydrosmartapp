@@ -5,14 +5,15 @@ import { db, ref, set, onValue } from '../../firebase'; // ✅ path sesuaikan
 
 export default function KontrolScreen() {
   const [controls, setControls] = useState({
-    pompa: { mode: 'manual', status: false },
+    pompaIn: { mode: 'manual', status: false },
+    pompaOut: { mode: 'manual', status: false },
     lampu: { mode: 'manual', status: false },
     siram: { mode: 'manual', status: false },
   });
 
   // 🔹 Sync dari Firebase -> State
   useEffect(() => {
-    const alatList = ['pompa', 'lampu', 'siram'];
+    const alatList = ['pompaIn', 'pompaOut', 'lampu', 'siram'];
 
     alatList.forEach((alat) => {
       // Mode
@@ -31,7 +32,7 @@ export default function KontrolScreen() {
       });
 
       // Status
-      const statusRef = ref(db, `/hydrosmart/controlAdvance/${alat}`);
+      const statusRef = ref(db, `/hydrosmart/controlAdvance/${alat}Mode`);
       onValue(statusRef, (snapshot) => {
         const value = snapshot.val();
         if (value !== null) {
@@ -67,7 +68,7 @@ export default function KontrolScreen() {
         [key]: { ...controls[key], status: newStatus },
       });
 
-      set(ref(db, `/hydrosmart/controlAdvance/${key}`), newStatus);
+      set(ref(db, `/hydrosmart/controlAdvance/${key}Mode`), newStatus);
     }
   };
 
@@ -77,7 +78,8 @@ export default function KontrolScreen() {
 
       <View style={styles.grid}>
         {[
-          { key: 'pompa', label: 'Pompa Air' },
+          { key: 'pompaIn', label: 'Pompa Air' },
+          { key: 'pompaOut', label: 'Kipas' }, // ✅ ganti label biar jelas
           { key: 'lampu', label: 'Pencahayaan' },
           { key: 'siram', label: 'Penyiraman' },
         ].map(({ key, label }) => (
@@ -86,7 +88,12 @@ export default function KontrolScreen() {
             <Text style={styles.status}>
               Mode: {controls[key].mode === 'otomatis' ? 'Otomatis' : 'Manual'}
             </Text>
-            <Text style={styles.status}>
+            <Text
+              style={[
+                styles.status,
+                { color: controls[key].status ? '#10b981' : '#ef4444' },
+              ]}
+            >
               Status: {controls[key].status ? 'ON' : 'OFF'}
             </Text>
 
@@ -112,10 +119,13 @@ export default function KontrolScreen() {
                 ]}
                 onPress={() => toggleStatus(key)}
               >
-                <Text style={styles.toggleText}>{controls[key].status ? 'ON' : 'OFF'}</Text>
+                <Text style={styles.toggleText}>
+                  {controls[key].status ? 'ON' : 'OFF'}
+                </Text>
               </TouchableOpacity>
             )}
           </View>
+
         ))}
       </View>
     </View>

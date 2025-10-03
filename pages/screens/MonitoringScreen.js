@@ -1,16 +1,17 @@
 import React, { useEffect, useState } from "react";
 import { View, Text, StyleSheet } from "react-native";
 import { ref, onValue } from "firebase/database";
-import { db } from "../../firebase"; // perbaikan path
+import { db } from "../../firebase";
 
 export default function MonitoringScreen() {
   const [data, setData] = useState({
-    suhu: "--",
-    kelembapan: "--",
-    ph: "--",
-    nutrisi: "--",
-    air: "--",
-    updatedAt: "--"
+    suhuUdara: "--",
+    kelembapanUdara: "--",
+    cahaya: "--",
+    suhuAir: "--",
+    ppm: "--",
+    phair: "--",
+    updatedAt: "--",
   });
 
   useEffect(() => {
@@ -19,12 +20,13 @@ export default function MonitoringScreen() {
       if (snapshot.exists()) {
         const val = snapshot.val();
         setData({
-          suhu: val.suhu ?? "--",
-          kelembapan: val.kelembapan ?? "--",
-          ph: "--",       // placeholder
-          nutrisi: val.tds ?? "--",  // placeholder
-          air: "--",      // placeholder
-          updatedAt: new Date().toLocaleTimeString("id-ID")
+          suhuUdara: val.suhuudara ? Number(val.suhuudara).toFixed(2) : "--",
+          kelembapanUdara: val.kelembabanudara ? Number(val.kelembabanudara).toFixed(2) : "--",
+          cahaya: val.cahaya ? Number(val.cahaya).toFixed(2) : "--",
+          suhuAir: val.suhuair ? Number(val.suhuair).toFixed(2) : "--",
+          ppm: val.ppm ? Number(val.ppm).toFixed(2) : "--",
+          phair: val.phair ? Number(val.phair).toFixed(2) : "--",
+          updatedAt: new Date().toLocaleTimeString("id-ID"),
         });
       }
     });
@@ -36,24 +38,28 @@ export default function MonitoringScreen() {
 
       <View style={styles.grid}>
         <View style={styles.card}>
-          <Text style={styles.label}>🌡️ Suhu</Text>
-          <Text style={styles.value}>{data.suhu} °C</Text>
+          <Text style={styles.label}>🌡️ Suhu Udara</Text>
+          <Text style={styles.value}>{data.suhuUdara} °C</Text>
         </View>
         <View style={styles.card}>
-          <Text style={styles.label}>💧 Kelembaban</Text>
-          <Text style={styles.value}>{data.kelembapan} %</Text>
+          <Text style={styles.label}>💧 Kelembaban Udara</Text>
+          <Text style={styles.value}>{data.kelembapanUdara} %</Text>
         </View>
         <View style={styles.card}>
-          <Text style={styles.label}>⚗️ pH Air</Text>
-          <Text style={styles.value}>{data.ph}</Text>
+          <Text style={styles.label}>💡 Intensitas Cahaya</Text>
+          <Text style={styles.value}>{data.cahaya} lux</Text>
         </View>
         <View style={styles.card}>
-          <Text style={styles.label}>🧪 Nutrisi</Text>
-          <Text style={styles.value}>{data.nutrisi} ppm</Text>
+          <Text style={styles.label}>💦 Suhu Air</Text>
+          <Text style={styles.value}>{data.suhuAir} °C</Text>
         </View>
         <View style={styles.card}>
-          <Text style={styles.label}>🚰 Tingkat Air</Text>
-          <Text style={styles.value}>{data.air}</Text>
+          <Text style={styles.label}>🧪 Nutrisi (TDS)</Text>
+          <Text style={styles.value}>{data.ppm} ppm</Text>
+        </View>
+        <View style={styles.card}>
+          <Text style={styles.label}>⚗️ PH Air</Text>
+          <Text style={styles.value}>{data.phair}</Text>
         </View>
       </View>
 
