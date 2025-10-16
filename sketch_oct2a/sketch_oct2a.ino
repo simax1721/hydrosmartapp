@@ -1,10 +1,3 @@
-/* Full ESP32 sketch
-   - Realtime updates: /hydrosmart/sensor/{namaSensor}
-   - Hourly history:   /hydrosmart/history/{yyyy-mm-dd HH}/{namaSensor}
-   - NTP (GMT+7) for timestamp
-   - Relay control (manual/auto) and update /hydrosmart/controlAdvance/{nama}
-*/
-
 #include <WiFi.h>
 #include <Firebase_ESP_Client.h>
 
@@ -41,12 +34,13 @@ FirebaseConfig config;
 #define DHTTYPE DHT22
 #define DS18B20_PIN 32
 #define TDS_PIN 35
+#define PH_PIN 34
 
 // ====== PIN RELAY ======
 #define relay1lampu 33
 #define relay2pompaIn 25
 #define relay3pompaOut 26
-#define relay4siram 27
+#define relay4kipas 27
 
 // ====== OBJEK SENSOR ======
 DHT dht(DHTPIN, DHTTYPE);
@@ -137,22 +131,21 @@ void setup() {
   pinMode(relay1lampu, OUTPUT);
   pinMode(relay2pompaIn, OUTPUT);
   pinMode(relay3pompaOut, OUTPUT);
-  pinMode(relay4siram, OUTPUT);
+  pinMode(relay4kipas, OUTPUT);
 
   digitalWrite(relay1lampu, HIGH);
   digitalWrite(relay2pompaIn, HIGH);
   digitalWrite(relay3pompaOut, HIGH);
-  digitalWrite(relay4siram, HIGH);
+  digitalWrite(relay4kipas, HIGH);
   Serial.println("✅ Relay siap!");
 }
 
-// ----------------- Loop -----------------
-void loop() {
+void loop () {
   // update NTP regularly
   timeClient.update();
 
   if (millis() - lastReadTime >= readInterval) {
-    // baca sensor
+
     suhuUdara = dhtRead();
     kelembabanUdara = dhtReadHumidity();
     cahaya = bh1750Read();
@@ -163,14 +156,8 @@ void loop() {
     Serial.printf("🌡 SuhuUdara: %.2f °C | 💧 Kelembapan: %.2f %% | 💡 Cahaya: %.2f Lux | 🌊 SuhuAir: %.2f °C | ppm: %.2f | pH: %.2f\n",
                   suhuUdara, kelembabanUdara, cahaya, suhuAirValue, ppm, phair);
 
-    // kirim realtime ke /hydrosmart/sensor/...
     if (Firebase.ready()) {
-      sensorToFirebaseRealtime("suhuudara", suhuUdara);
-      sensorToFirebaseRealtime("kelembabanudara", kelembabanUdara);
-      sensorToFirebaseRealtime("cahaya", cahaya);
-      sensorToFirebaseRealtime("suhuair", suhuAirValue);
-      sensorToFirebaseRealtime("ppm", ppm);
-      sensorToFirebaseRealtime("phair", phair);
+      sensorToFirebaseRealtime(suhuUdara, kelembabanUdara, cahaya, suhuAirValue, ppm, phair);
 
       // Simpan history per jam: hanya sekali saat jam berganti
       String curHour = getTimestampHour(); // "yyyy-mm-dd HH"
@@ -180,18 +167,15 @@ void loop() {
         lastSavedHour = curHour;
         Serial.println("✅ History hourly saved for: " + curHour);
       }
-    } else {
-      Serial.println("❌ Firebase belum siap, cek koneksi!");
-    }
 
-    // kontrol relay (nama yang dipakai konsisten dengan firebase: e.g. "lampuMode")
-    kontrolRelay("lampuMode", relay1lampu);
-    kontrolRelay("pompaInMode", relay2pompaIn);
-    kontrolRelay("pompaOutMode", relay3pompaOut);
-    kontrolRelay("siramMode", relay4siram);
+      // update kontrol (otomatis/manual)
+      updateControl();
+    }
 
     lastReadTime = millis(); 
   }
+
+  
 }
 
 // ----------------- SENSOR FUNCTIONS -----------------
@@ -223,21 +207,64 @@ float tdsRead() {
   return val;
 }
 
+// data kalibrasi sensor ph
+float PH4 = 3.30;
+float PH7 = 2.51;
+
+float PH_step;
+// int nilai_analog_PH;
+double TeganganPh;
+
 float phRead() {
+
+  float phValue;
+
+  int nilaiADC = analogRead(PH_PIN);
+
+  // Konversi nilai ADC (0–4095) ke tegangan (0–3.3V)
+  TeganganPh = nilaiADC * (3.3 / 4095.0);
+
+  // Hitung step perubahan tegangan antar 1 satuan pH
+  PH_step = (PH4 - PH7) / 3.0;
+
+  // Hitung nilai pH aktual
+  phValue = 7.00 + ((PH7 - TeganganPh) / PH_step);
+
+  // Debug serial
+  // Serial.println("===== Pembacaan Sensor pH =====");
+  // Serial.print("Nilai ADC pH: ");
+  // Serial.println(nilaiADC);
+  // Serial.print("Tegangan pH : ");
+  // Serial.println(TeganganPh, 3);
+  // Serial.print("Nilai pH Cairan: ");
+  // Serial.println(phValue, 2);
+  // Serial.println("----------------------------------");
+
+  // kembalikan nilai pH
+  return phValue;
+
   // dummy pH sementara 5.5 - 7.5
   float ph = random(55, 75) / 10.0;
   return ph;
 }
 
-// ----------------- FIREBASE: realtime & history -----------------
-void sensorToFirebaseRealtime(const String &node, float value) {
-  
-  String path = "/hydrosmart/sensor/" + node;
-  if (Firebase.RTDB.setDouble(&fbData, path.c_str(), value)) {
-    // berhasil
-    //Serial.println("RT " + node + " -> " + String(value));
+
+// ----------------- Fungsi kirim data ke Firebase -----------------
+void sensorToFirebaseRealtime(float suhuUdara, float kelembabanUdara, float cahaya, float suhuAir, float ppm, float phair) {
+  String path = "/hydrosmart/sensor";
+
+  FirebaseJson json;
+  json.set("suhuudara", suhuUdara);
+  json.set("kelembabanudara", kelembabanUdara);
+  json.set("cahaya", cahaya);
+  json.set("suhuair", suhuAir);
+  json.set("ppm", ppm);
+  json.set("phair", phair);
+
+  if (Firebase.RTDB.setJSON(&fbData, path.c_str(), &json)) {
+    Serial.println("✅ Data sensor berhasil dikirim ke Firebase!");
   } else {
-    Serial.println("❌ RT gagal " + node + ": " + fbData.errorReason());
+    Serial.println("❌ Gagal kirim data: " + fbData.errorReason());
   }
 }
 
@@ -283,70 +310,204 @@ String getFormattedTime() {
   return String(buf);
 }
 
-// ----------------- RELAY CONTROL & update status -----------------
-void updateStatusFirebase(const String &nama, bool state) {
-  String path = "/hydrosmart/controlAdvance/" + nama;
-  if (!Firebase.RTDB.setBool(&fbData, path.c_str(), state)) {
-    Serial.println("❌ Gagal update status " + nama + ": " + fbData.errorReason());
+
+
+
+
+// ----------------- Fungsi kontrol relay -----------------
+FirebaseJson controlJson;
+FirebaseJson controlAdvanceJson;
+
+// Parsing nilai mode otomatis/manual
+bool kipasModeControl = false;
+bool lampuModeControl = false;
+bool pompaModeControl = false;
+// bool pompaOutModeControl = false;
+
+// Parsing nilai manual controlAdvance
+bool kipasModeControlAdvance = false;
+bool lampuModeControlAdvance = false;
+bool pompaInModeControlAdvance = false;
+bool pompaModeControlAdvance = false;
+bool pompaOutModeControlAdvance = false;
+
+// ----------------- Fungsi kontrol relay -----------------
+void kontrolRelay(String namaRelay, int pinRelay, bool modeRelay) {
+  if (modeRelay) {
+    digitalWrite(pinRelay, LOW);  // aktif (relay on)
+    Serial.println("🔌 Manual " + namaRelay + " ON");
+  } else {
+    digitalWrite(pinRelay, HIGH); // nonaktif (relay off)
+    Serial.println("🔌 Manual " + namaRelay + " OFF");
   }
 }
 
-void kontrolRelay(const String &nama, int pin) {
-  bool modeAuto = false;
-  bool stateManual = false;
+// ----------------- Fungsi kontrol relay otomatis -----------------
+void KontrolRelayOtomatis(String namaRelay, int pinRelay, bool modeRelay) {
+  String path = "/hydrosmart/controlAdvance/" + namaRelay;
 
-  // Baca mode (path sesuai skema: /hydrosmart/control/{nama})
-  String modePath = "/hydrosmart/control/" + nama;
-  if (!Firebase.RTDB.getBool(&fbData, modePath.c_str())) {
-    // bisa gagal baca (misal tidak ada) -> keluar
-    //Serial.println("⚠ Gagal baca mode " + nama + ": " + fbData.errorReason());
+  if (modeRelay) {
+    digitalWrite(pinRelay, LOW);  // aktif (relay on)
+    Serial.println("🔌 Otomatis " + namaRelay + " ON");
+
+    // Update status relay ke Firebase
+    if (Firebase.RTDB.setBool(&fbData, path.c_str(), true)) {
+      Serial.println("✅ Firebase update: " + path + " = true");
+    } else {
+      Serial.println("❌ Gagal update Firebase: " + fbData.errorReason());
+    }
+
+  } else {
+    digitalWrite(pinRelay, HIGH); // nonaktif (relay off)
+    Serial.println("🔌 Otomatis " + namaRelay + " OFF");
+
+    // Update status relay ke Firebase
+    if (Firebase.RTDB.setBool(&fbData, path.c_str(), false)) {
+      Serial.println("✅ Firebase update: " + path + " = false");
+    } else {
+      Serial.println("❌ Gagal update Firebase: " + fbData.errorReason());
+    }
+  }
+}
+
+// ----------------- Fungsi update kontrol dari Firebase -----------------
+void updateControl() {
+  FirebaseJsonData data;
+
+  // Ambil data mode otomatis/manual
+  if (Firebase.RTDB.getJSON(&fbData, "/hydrosmart/control")) {
+    controlJson = fbData.to<FirebaseJson>();
+  } else {
+    Serial.println("❌ Gagal ambil /control: " + fbData.errorReason());
     return;
   }
-  modeAuto = fbData.boolData();
 
-  // manual
-  if (!modeAuto) {
-    String advPath = "/hydrosmart/controlAdvance/" + nama;
-    if (!Firebase.RTDB.getBool(&fbData, advPath.c_str())) {
-      //Serial.println("⚠ Gagal baca controlAdvance " + nama + ": " + fbData.errorReason());
-      return;
-    }
-    stateManual = fbData.boolData();
+  // Ambil nilai dari JSON
+  if (controlJson.get(data, "kipasMode")) kipasModeControl = data.to<bool>();
+  if (controlJson.get(data, "lampuMode")) lampuModeControl = data.to<bool>();
+  if (controlJson.get(data, "pompaMode")) pompaModeControl = data.to<bool>();
+  // if (controlJson.get(data, "pompaOutMode")) pompaOutModeControl = data.to<bool>();
 
-    if (stateManual) {
-      digitalWrite(pin, LOW);  // aktif = LOW
-      updateStatusFirebase(nama, true);
+  // Ambil data manual controlAdvance
+  if (Firebase.RTDB.getJSON(&fbData, "/hydrosmart/controlAdvance")) {
+    controlAdvanceJson = fbData.to<FirebaseJson>();
+  } else {
+    Serial.println("❌ Gagal ambil /controlAdvance: " + fbData.errorReason());
+    return;
+  }
+
+  if (controlAdvanceJson.get(data, "kipasMode")) kipasModeControlAdvance = data.to<bool>();
+  if (controlAdvanceJson.get(data, "lampuMode")) lampuModeControlAdvance = data.to<bool>();
+  if (controlAdvanceJson.get(data, "pompaInMode")) pompaInModeControlAdvance = data.to<bool>();
+  if (controlAdvanceJson.get(data, "pompaMode")) pompaModeControlAdvance = data.to<bool>();
+  if (controlAdvanceJson.get(data, "pompaOutMode")) pompaOutModeControlAdvance = data.to<bool>();
+
+  // ======== KIPAS ========
+  if (kipasModeControl) {
+    if (suhuUdara >= 35.0) {
+      KontrolRelayOtomatis("kipasMode", relay4kipas, true);
     } else {
-      digitalWrite(pin, HIGH);
-      updateStatusFirebase(nama, false);
+      KontrolRelayOtomatis("kipasMode", relay4kipas, false);
     }
-  } 
-  // otomatis
-  else {
-    bool stateAuto = false;
+  } else {
+    kontrolRelay("Kipas", relay4kipas, kipasModeControlAdvance);
+  }
 
-    if (nama == "pompaOutMode") { // kipas
-      if (suhuUdara >= 35.0) { digitalWrite(pin, LOW); stateAuto = true; }
-      else { digitalWrite(pin, HIGH); stateAuto = false; }
+  // ======== LAMPU ========
+  if (lampuModeControl) {
+    if (cahaya <= 100.0) {
+      KontrolRelayOtomatis("lampuMode", relay1lampu, true);
+    } else {
+      KontrolRelayOtomatis("lampuMode", relay1lampu, false);
     }
-    else if (nama == "lampuMode") {
-      if (cahaya <= 100.0) { digitalWrite(pin, LOW); stateAuto = true; }
-      else { digitalWrite(pin, HIGH); stateAuto = false; }
-    }
-    else if (nama == "pompaInMode") {
-      // sesuai tabel: ON kalau kondisi tidak ideal
-      if (suhuAirValue >= 31 || ppm < 200 || ppm > 2000 || phair < 5.5 || phair > 7.5) {
-        digitalWrite(pin, LOW); stateAuto = true;
-      } else {
-        digitalWrite(pin, HIGH); stateAuto = false;
+    
+  } else {
+    kontrolRelay("Lampu", relay1lampu, lampuModeControlAdvance);
+  }
+
+  // ========================= POMPA =========================
+  static unsigned long pompaTimer = 0;
+  static int pompaState = 0;  // 0: idle, 1: buang, 2: isi
+  const unsigned long durasiPompa = 15000; // 15 detik per proses
+  unsigned long now = millis();
+
+  // ======== POMPA (otomatis / manual) ========
+  if (pompaModeControl) {
+    // =============== MODE OTOMATIS ===============
+    if ((suhuAirValue <= 30.0) && (ppm >= 200 && ppm <= 2000) && (phair >= 5.5 && phair <= 7.5)) {
+      if (pompaState != 0) {
+        KontrolRelayOtomatis("pompaOutMode", relay3pompaOut, false);
+        KontrolRelayOtomatis("pompaInMode", relay2pompaIn, false);
+        pompaState = 0;
+        Serial.println("💧 Kondisi air stabil — semua pompa dimatikan.");
+      }
+    } else {
+      if (pompaState == 0) {
+        Serial.println("⚠️ Air tidak stabil — mulai buang air.");
+        KontrolRelayOtomatis("pompaOutMode", relay3pompaOut, true);
+        KontrolRelayOtomatis("pompaInMode", relay2pompaIn, false);
+        pompaTimer = millis();
+        pompaState = 1;
+      } 
+      else if (pompaState == 1 && millis() - pompaTimer >= durasiPompa) {
+        Serial.println("💧 Ganti ke mode isi air.");
+        KontrolRelayOtomatis("pompaOutMode", relay3pompaOut, false);
+        KontrolRelayOtomatis("pompaInMode", relay2pompaIn, true);
+        pompaTimer = millis();
+        pompaState = 2;
+      } 
+      else if (pompaState == 2 && millis() - pompaTimer >= durasiPompa) {
+        Serial.println("✅ Proses penggantian air selesai.");
+        KontrolRelayOtomatis("pompaInMode", relay2pompaIn, false);
+        pompaState = 0;
       }
     }
-    else if (nama == "siramMode") {
-      // belum ada logika otomatis untuk siram -> default mati
-      digitalWrite(pin, HIGH); stateAuto = false;
-    }
 
-    // update status di firebase agar UI tahu kondisi actual
-    updateStatusFirebase(nama, stateAuto);
+  } else {
+    // =============== MODE MANUAL ===============
+    if (pompaModeControlAdvance) {
+      // Jalankan siklus manual seperti otomatis, TANPA cek sensor
+      if (pompaState == 0) {
+        Serial.println("⚙️ Mode manual — mulai buang air.");
+        KontrolRelayOtomatis("pompaOutMode", relay3pompaOut, true);
+        KontrolRelayOtomatis("pompaInMode", relay2pompaIn, false);
+        pompaTimer = millis();
+        pompaState = 1;
+      } 
+      else if (pompaState == 1 && millis() - pompaTimer >= durasiPompa) {
+        Serial.println("💧 Mode manual — ganti ke isi air.");
+        KontrolRelayOtomatis("pompaOutMode", relay3pompaOut, false);
+        KontrolRelayOtomatis("pompaInMode", relay2pompaIn, true);
+        pompaTimer = millis();
+        pompaState = 2;
+      } 
+      else if (pompaState == 2 && millis() - pompaTimer >= durasiPompa) {
+        Serial.println("✅ Mode manual — proses selesai.");
+        KontrolRelayOtomatis("pompaInMode", relay2pompaIn, false);
+        pompaState = 0;
+
+        // 🔄 Setelah selesai, set kembali ke false di Firebase
+        if (Firebase.RTDB.setBool(&fbData, "/hydrosmart/controlAdvance/pompaMode", false)) {
+          Serial.println("🔁 Reset manual pompa ke false di Firebase.");
+        } else {
+          Serial.println("❌ Gagal reset controlAdvance/pompaMode: " + fbData.errorReason());
+        }
+      }
+    } else {
+      // Jika mode manual tapi tombol belum ditekan
+      if (pompaState != 0) {
+        // Pastikan relay mati
+        KontrolRelayOtomatis("pompaOutMode", relay3pompaOut, false);
+        KontrolRelayOtomatis("pompaInMode", relay2pompaIn, false);
+        pompaState = 0;
+      }
+    }
   }
+
+
+
 }
+
+
+
+

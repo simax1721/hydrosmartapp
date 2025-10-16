@@ -5,33 +5,65 @@ import { db, ref, set, onValue } from '../../firebase'; // ✅ path sesuaikan
 
 export default function KontrolScreen() {
   const [controls, setControls] = useState({
-    pompaIn: { mode: 'manual', status: false },
-    pompaOut: { mode: 'manual', status: false },
+    // pompaIn: { mode: 'manual', status: false },
+    // pompaOut: { mode: 'manual', status: false },
+    pompa: { mode: 'manual', status: false },
     lampu: { mode: 'manual', status: false },
-    siram: { mode: 'manual', status: false },
+    kipas: { mode: 'manual', status: false },
   });
 
-  // 🔹 Sync dari Firebase -> State
   useEffect(() => {
-    const alatList = ['pompaIn', 'pompaOut', 'lampu', 'siram'];
+  const alatList = ['pompa', 'lampu', 'kipas'];
 
-    alatList.forEach((alat) => {
-      // Mode
-      const modeRef = ref(db, `/hydrosmart/control/${alat}Mode`);
-      onValue(modeRef, (snapshot) => {
-        const value = snapshot.val();
-        if (value !== null) {
-          setControls((prev) => ({
-            ...prev,
-            [alat]: {
-              ...prev[alat],
-              mode: value ? 'otomatis' : 'manual',
-            },
-          }));
-        }
+  alatList.forEach((alat) => {
+    // 🔹 Mode
+    const modeRef = ref(db, `/hydrosmart/control/${alat}Mode`);
+    onValue(modeRef, (snapshot) => {
+      const value = snapshot.val();
+      if (value !== null) {
+        setControls((prev) => ({
+          ...prev,
+          [alat]: {
+            ...prev[alat],
+            mode: value ? 'otomatis' : 'manual',
+          },
+        }));
+      }
+    });
+
+    // 🔹 Status khusus untuk pompa → baca 2 node (In dan Out)
+    if (alat === 'pompa') {
+      const pompaInRef = ref(db, `/hydrosmart/controlAdvance/pompaInMode`);
+      const pompaOutRef = ref(db, `/hydrosmart/controlAdvance/pompaOutMode`);
+
+      const updatePompaStatus = (valIn, valOut) => {
+        const isOn = valIn || valOut; // jika salah satu true → dianggap ON
+        setControls((prev) => ({
+          ...prev,
+          pompa: {
+            ...prev.pompa,
+            status: isOn,
+          },
+        }));
+      };
+
+      let pompaInVal = false;
+      let pompaOutVal = false;
+
+      onValue(pompaInRef, (snapshot) => {
+        const val = snapshot.val();
+        pompaInVal = val ?? false;
+        updatePompaStatus(pompaInVal, pompaOutVal);
       });
 
-      // Status
+      onValue(pompaOutRef, (snapshot) => {
+        const val = snapshot.val();
+        pompaOutVal = val ?? false;
+        updatePompaStatus(pompaInVal, pompaOutVal);
+      });
+    } 
+    // 🔹 Status biasa untuk alat lain
+    else {
       const statusRef = ref(db, `/hydrosmart/controlAdvance/${alat}Mode`);
       onValue(statusRef, (snapshot) => {
         const value = snapshot.val();
@@ -45,8 +77,9 @@ export default function KontrolScreen() {
           }));
         }
       });
-    });
-  }, []);
+    }
+  });
+}, []);
 
   // 🔹 Update Mode ke Firebase
   const changeMode = (key, mode) => {
@@ -78,10 +111,11 @@ export default function KontrolScreen() {
 
       <View style={styles.grid}>
         {[
-          { key: 'pompaIn', label: 'Pompa Air' },
-          { key: 'pompaOut', label: 'Kipas' }, // ✅ ganti label biar jelas
-          { key: 'lampu', label: 'Pencahayaan' },
-          { key: 'siram', label: 'Penyiraman' },
+          // { key: 'pompaIn', label: 'Pompa Air' },
+          // { key: 'pompaOut', label: 'Kipas' }, // ✅ ganti label biar jelas
+          { key: 'pompa', label: 'Pompa Air' },
+          { key: 'lampu', label: 'Lampu' },
+          { key: 'kipas', label: 'Kipas' },
         ].map(({ key, label }) => (
           <View key={key} style={styles.card}>
             <Text style={styles.label}>{label}</Text>
